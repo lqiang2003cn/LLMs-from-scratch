@@ -1,7 +1,7 @@
-wget /root/https://repo.anaconda.com/archive/Anaconda3-2024.02-1-Linux-x86_64.sh
+wget https://repo.anaconda.com/archive/Anaconda3-2024.02-1-Linux-x86_64.sh -P /root
 bash /root/Anaconda3-2024.02-1-Linux-x86_64.sh -b
 /root/anaconda3/bin/conda init && source /root/.bashrc
-/root/anaconda3/bin/conda create -n llm3 python=3.10 -y
+/root/anaconda3/bin/conda create -n llm python=3.10 -y
 
 #eval "$(/root/anaconda3/bin/conda shell.bash hook)"
 #conda activate llm3
