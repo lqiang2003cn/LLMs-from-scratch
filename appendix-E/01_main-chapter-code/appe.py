@@ -155,3 +155,100 @@ test_accuracy = calc_accuracy_loader(test_loader, model, device, num_batches=10)
 print(f"Training accuracy: {train_accuracy*100:.2f}%")
 print(f"Validation accuracy: {val_accuracy*100:.2f}%")
 print(f"Test accuracy: {test_accuracy*100:.2f}%")
+
+
+import math
+
+class LoRALayer(torch.nn.Module):
+    def __init__(self, in_dim, out_dim, rank, alpha):
+        super().__init__()
+        self.A = torch.nn.Parameter(torch.empty(in_dim, rank))
+        torch.nn.init.kaiming_uniform_(self.A, a=math.sqrt(5))  # similar to standard weight initialization
+        self.B = torch.nn.Parameter(torch.zeros(rank, out_dim))
+        self.alpha = alpha
+
+    def forward(self, x):
+        x = self.alpha * (x @ self.A @ self.B)
+        return x
+
+
+class LinearWithLoRA(torch.nn.Module):
+    def __init__(self, linear, rank, alpha):
+        super().__init__()
+        self.linear = linear
+        self.lora = LoRALayer(
+            linear.in_features, linear.out_features, rank, alpha
+        )
+
+    def forward(self, x):
+        l = self.linear(x)
+        r = self.lora(x)
+        return l + r
+
+
+def replace_linear_with_lora(model, rank, alpha):
+    for name, module in model.named_children():
+        if isinstance(module, torch.nn.Linear):
+            # Replace the Linear layer with LinearWithLoRA
+            setattr(model, name, LinearWithLoRA(module, rank, alpha))
+        else:
+            # Recursively apply the same function to child modules
+            replace_linear_with_lora(module, rank, alpha)
+
+
+total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+print(f"Total trainable parameters before: {total_params:,}")
+
+for param in model.parameters():
+    param.requires_grad = False
+
+# only show the trainable parameters of the model
+total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+print(f"Total trainable parameters after: {total_params:,}")
+
+
+replace_linear_with_lora(model, rank=16, alpha=16)
+total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+print(f"Total trainable LoRA parameters: {total_params:,}")
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model.to(device)
+print(model)
+
+
+# torch.manual_seed(123)
+# train_accuracy = calc_accuracy_loader(train_loader, model, device, num_batches=10)
+# val_accuracy = calc_accuracy_loader(val_loader, model, device, num_batches=10)
+# test_accuracy = calc_accuracy_loader(test_loader, model, device, num_batches=10)
+# print(f"Training accuracy: {train_accuracy*100:.2f}%")
+# print(f"Validation accuracy: {val_accuracy*100:.2f}%")
+# print(f"Test accuracy: {test_accuracy*100:.2f}%")
+
+
+import time
+from previous_chapters import train_classifier_simple
+start_time = time.time()
+torch.manual_seed(123)
+optimizer = torch.optim.AdamW(model.parameters(), lr=5e-5, weight_decay=0.1)
+num_epochs = 5
+train_losses, val_losses, train_accs, val_accs, examples_seen = train_classifier_simple(
+    model, train_loader, val_loader, optimizer, device,
+    num_epochs=num_epochs, eval_freq=50, eval_iter=5,
+)
+end_time = time.time()
+execution_time_minutes = (end_time - start_time) / 60
+print(f"Training completed in {execution_time_minutes:.2f} minutes.")
+
+
+from previous_chapters import plot_values
+epochs_tensor = torch.linspace(0, num_epochs, len(train_losses))
+examples_seen_tensor = torch.linspace(0, examples_seen, len(train_losses))
+plot_values(epochs_tensor, examples_seen_tensor, train_losses, val_losses, label="loss")
+
+
+train_accuracy = calc_accuracy_loader(train_loader, model, device)
+val_accuracy = calc_accuracy_loader(val_loader, model, device)
+test_accuracy = calc_accuracy_loader(test_loader, model, device)
+print(f"Training accuracy: {train_accuracy*100:.2f}%")
+print(f"Validation accuracy: {val_accuracy*100:.2f}%")
+print(f"Test accuracy: {test_accuracy*100:.2f}%")
